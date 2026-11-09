@@ -21,13 +21,17 @@ on:
         description: '镜像大小（内容约 6.5G，9G 有富余）'
         required: false
         default: '9G'
+      runner:
+        description: '跑在哪个 macOS runner 上（排队慢时可换 macos-14 / macos-13）'
+        required: false
+        default: 'macos-13'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 300
 
     steps:
