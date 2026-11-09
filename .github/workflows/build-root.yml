@@ -1,7 +1,10 @@
 name: build-hfs-root
 
 # 从 IPSW 造 ios-fuxi 需要的 HFS+ 根镜像（iOS 16.7.16 / 20H392 / iPhone10,3）。
-# 产物按 1900M 分卷，挂到 GitHub Release 上（Release 附件不占 Actions 存储配额）。
+# 跑在 macOS runner 上：hdiutil 原生读 DMG/APFS，系统原生支持 HFS+。
+# （Ubuntu runner 的内核没有编 hfsplus 模块，mount 必然失败，所以不用 Linux。）
+#
+# 注意：GitHub macOS runner 可用磁盘只有 ~14 GB，删 Xcode 腾空间，脚本里 dmg 用完即删。
 
 on:
   workflow_dispatch:
@@ -15,17 +18,17 @@ on:
         required: false
         default: 'ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb'
       size:
-        description: '镜像大小'
+        description: '镜像大小（内容约 6.5G，9G 有富余）'
         required: false
-        default: '10G'
+        default: '9G'
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 240
+    runs-on: macos-13
+    timeout-minutes: 300
 
     steps:
       - uses: actions/checkout@v4
@@ -33,20 +36,11 @@ jobs:
       - name: 腾磁盘
         run: |
           df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL \
-                      /usr/local/share/powershell /usr/share/swift || true
-          sudo docker image prune -af || true
-          sudo apt-get clean
+          sudo rm -rf /Applications/Xcode*.app || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/* || true
+          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/* || true
+          sudo rm -rf /usr/local/Homebrew/Library/Taps || true
           df -h /
-
-      - name: 装依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y hfsprogs rsync unzip cmake g++ git make \
-              libfuse3-dev libbz2-dev zlib1g-dev libssl-dev pkg-config
-          sudo modprobe hfsplus || true
-          ls -l /dev/fuse
 
       - name: 下载 IPSW
         env:
@@ -56,22 +50,22 @@ jobs:
           mkdir -p /tmp/work
           curl -L --fail --retry 5 --retry-delay 5 -o /tmp/work/root.ipsw "$URL"
           ls -l /tmp/work/root.ipsw
-          if [ -n "$SHA" ]; then echo "$SHA  /tmp/work/root.ipsw" | sha256sum -c -; fi
+          if [ -n "$SHA" ]; then echo "$SHA  /tmp/work/root.ipsw" | shasum -a 256 -c -; fi
           df -h /
 
       - name: 造 HFS+ 根镜像
         env:
           SIZE: ${{ inputs.size }}
         run: |
-          sudo bash scripts/mkiosroot-linux.sh /tmp/work/root.ipsw /tmp/work/iosroot.img "$SIZE"
+          sudo bash scripts/mkiosroot-macos.sh /tmp/work/root.ipsw /tmp/work/iosroot.img "$SIZE"
           df -h /
 
       - name: 分卷 + 校验
         run: |
           cd /tmp/work
-          split -b 1900M -d -a 2 iosroot.img iosroot.img.part
-          sha256sum iosroot.img > iosroot.img.sha256
-          sha256sum iosroot.img.part* > iosroot.img.parts.sha256
+          split -b 1900m -a 2 iosroot.img iosroot.img.part
+          shasum -a 256 iosroot.img > iosroot.img.sha256
+          shasum -a 256 iosroot.img.part* > iosroot.img.parts.sha256
           ls -l
 
       - name: 挂到 Release
@@ -81,12 +75,12 @@ jobs:
         run: |
           cd /tmp/work
           gh release create "$TAG" --repo "${{ github.repository }}" \
-             --title "HFS+ root image $TAG" \
-             --notes "iOS 16.7.16 / 20H392 HFS+ root for ios-fuxi (fuxi). 分卷 1900M，合并: cat iosroot.img.part* > iosroot.img" \
-             iosroot.img.part* iosroot.img.sha256 iosroot.img.parts.sha256
+            --title "HFS+ root image $TAG" \
+            --notes "iOS 16.7.16 / 20H392 HFS+ root for ios-fuxi (fuxi). 分卷 1900M，合并: cat iosroot.img.part* > iosroot.img" \
+            iosroot.img.part* iosroot.img.sha256 iosroot.img.parts.sha256
 
       - name: 汇总
         run: |
           cd /tmp/work
-          echo "SIZE=$(du -h iosroot.img | cut -f1)"
+          ls -l iosroot.img
           cat iosroot.img.sha256
