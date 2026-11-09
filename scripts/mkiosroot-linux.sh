@@ -50,24 +50,37 @@ KEYS = ("OS", "Cryptex1,SystemOS", "Cryptex1,AppOS")
 with zipfile.ZipFile(sys.argv[1]) as z:
     man = plistlib.loads(z.read('BuildManifest.plist'))
 
-# 取第一个带 OS 的 identity（iPhone10,3 的常规 restore 身份）
+
+def path_of(entry):
+    """iOS 16+ 的路径在 Manifest[key]['Info']['Path']；老结构在 identity['Info'][key]['Path']。"""
+    if not isinstance(entry, dict):
+        return None
+    info = entry.get('Info')
+    if isinstance(info, dict) and info.get('Path'):
+        return info['Path']
+    if entry.get('Path'):          # 兼容老结构
+        return entry['Path']
+    return None
+
+
+# 取第一个带 OS 的 identity
 pick = None
 for ident in man.get('BuildIdentities', []):
-    info = ident.get('Info', {})
-    os_ = info.get('OS')
-    if isinstance(os_, dict) and os_.get('Path'):
-        pick = info
+    m = ident.get('Manifest')
+    src = m if isinstance(m, dict) else ident.get('Info', {})
+    if path_of(src.get('OS')):
+        pick = src
         break
 if pick is None:
-    raise SystemExit("BuildManifest 里找不到 OS 条目")
+    raise SystemExit("BuildManifest 里找不到 OS 条目（Manifest/Info 两种结构都试过了）")
 
 print("# ProductBuildVersion=%s ProductVersion=%s" %
       (man.get('ProductBuildVersion'), man.get('ProductVersion')))
 missing = []
 for k in KEYS:
-    v = pick.get(k)
-    if isinstance(v, dict) and v.get('Path'):
-        print("%s=%s" % (k, v['Path']))
+    p = path_of(pick.get(k))
+    if p:
+        print("%s=%s" % (k, p))
     else:
         missing.append(k)
 print("# missing=%s" % ",".join(missing))
@@ -100,6 +113,10 @@ mnt() {  # mnt <dmg名> <挂载点名>
 }
 
 cp_() {  # cp_ <源> <目标>
+  if [[ ! -d "$1" ]]; then
+    echo "  !! 跳过（源目录不存在）: $1"
+    return 0
+  fi
   echo "  -> ${2#"$W/root"}"
   mkdir -p "$2"
   rsync -aH --numeric-ids "$1/" "$2/"
