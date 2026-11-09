@@ -29,10 +29,13 @@ apt-get install -y -qq hfsprogs rsync python3 unzip cmake g++ git make \
     libfuse3-dev libbz2-dev zlib1g-dev libssl-dev pkg-config >/dev/null
 modprobe hfsplus 2>/dev/null || true
 if ! command -v apfs-fuse >/dev/null; then
+  echo "  编译 apfs-fuse（含 lzfse 子模块）"
   T=$(mktemp -d)
   git clone --depth 1 https://github.com/sgan81/apfs-fuse.git "$T/a"
-  cmake -S "$T/a" -B "$T/b" -DCMAKE_BUILD_TYPE=Release >/dev/null
-  cmake --build "$T/b" -j"$(nproc)" >/dev/null
+  # apfs-fuse 把 lzfse 当子模块放在 3rdparty/lzfse，不初始化子模块 CMake 直接报缺 lzfse.h
+  git -C "$T/a" submodule update --init --recursive
+  cmake -S "$T/a" -B "$T/b" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$T/b" -j"$(nproc)"
   install -m755 "$T/b/apfs-fuse" /usr/local/bin/apfs-fuse
   rm -rf "$T"
 fi
