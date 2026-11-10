@@ -1,10 +1,15 @@
 name: build-hfs-root
 
 # 从 IPSW 造 ios-fuxi 需要的 HFS+ 根镜像（iOS 16.7.16 / 20H392 / iPhone10,3）。
-# 跑在 macOS runner 上：hdiutil 原生读 DMG/APFS，系统原生支持 HFS+。
-# （Ubuntu runner 的内核没有编 hfsplus 模块，mount 必然失败，所以不用 Linux。）
 #
-# 注意：GitHub macOS runner 可用磁盘只有 ~14 GB，删 Xcode 腾空间，脚本里 dmg 用完即删。
+# 环境选择：默认 ubuntu-latest。
+#   * ubuntu-26.04 的内核 7.0.0-1019-azure 自带 hfsplus.ko.zst，modprobe 可用，
+#     mkfs.hfsplus + mount -o loop,force 都能跑（2026-11-10 已实测）。
+#   * 早期 ubuntu runner 的内核 6.8.0-1070-azure 没有 hfsplus，所以老结论"Linux 必失败"已过期。
+#   * macOS runner 在 GitHub Free 计划下不可用（一创建就 cancelled），因此不作为默认。
+#
+# 磁盘：镜像用 truncate 造稀疏文件，实际占用随内容增长（约 7G），
+# IPSW 在解出 dmg 后立刻删除，峰值约 14G。
 
 on:
   workflow_dispatch:
@@ -18,13 +23,13 @@ on:
         required: false
         default: 'ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb'
       size:
-        description: '镜像大小（内容约 6.5G，9G 有富余）'
+        description: '镜像大小（内容约 7G，9G 有富余）'
         required: false
         default: '9G'
       runner:
-        description: '跑在哪个 macOS runner 上（排队慢时可换 macos-14 / macos-13）'
+        description: 'runner：ubuntu-latest（可用）/ macos-14（Free 计划不可用）'
         required: false
-        default: 'macos-13'
+        default: 'ubuntu-latest'
 
 permissions:
   contents: write
@@ -37,14 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 腾磁盘
+      - name: 环境与磁盘
         run: |
+          uname -a
           df -h /
-          sudo rm -rf /Applications/Xcode*.app || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/* || true
-          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/* || true
-          sudo rm -rf /usr/local/Homebrew/Library/Taps || true
-          df -h /
+          nproc
+          free -g | head -2
 
       - name: 下载 IPSW
         env:
@@ -54,22 +57,36 @@ jobs:
           mkdir -p /tmp/work
           curl -L --fail --retry 5 --retry-delay 5 -o /tmp/work/root.ipsw "$URL"
           ls -l /tmp/work/root.ipsw
-          if [ -n "$SHA" ]; then echo "$SHA  /tmp/work/root.ipsw" | shasum -a 256 -c -; fi
+          if [ -n "$SHA" ]; then
+            if command -v sha256sum >/dev/null; then
+              echo "$SHA  /tmp/work/root.ipsw" | sha256sum -c -
+            else
+              echo "$SHA  /tmp/work/root.ipsw" | shasum -a 256 -c -
+            fi
+          fi
           df -h /
 
       - name: 造 HFS+ 根镜像
         env:
           SIZE: ${{ inputs.size }}
+          RUNNER: ${{ inputs.runner }}
         run: |
-          sudo bash scripts/mkiosroot-macos.sh /tmp/work/root.ipsw /tmp/work/iosroot.img "$SIZE"
+          if [[ "$RUNNER" == macos* ]]; then
+            SCRIPT=scripts/mkiosroot-macos.sh
+          else
+            SCRIPT=scripts/mkiosroot-linux.sh
+          fi
+          echo "使用脚本: $SCRIPT"
+          sudo bash "$SCRIPT" /tmp/work/root.ipsw /tmp/work/iosroot.img "$SIZE"
           df -h /
 
       - name: 分卷 + 校验
         run: |
           cd /tmp/work
           split -b 1900m -a 2 iosroot.img iosroot.img.part
-          shasum -a 256 iosroot.img > iosroot.img.sha256
-          shasum -a 256 iosroot.img.part* > iosroot.img.parts.sha256
+          if command -v sha256sum >/dev/null; then SH="sha256sum"; else SH="shasum -a 256"; fi
+          $SH iosroot.img > iosroot.img.sha256
+          $SH iosroot.img.part* > iosroot.img.parts.sha256
           ls -l
 
       - name: 挂到 Release
@@ -88,3 +105,4 @@ jobs:
           cd /tmp/work
           ls -l iosroot.img
           cat iosroot.img.sha256
+          cat iosroot.img.parts.sha256
