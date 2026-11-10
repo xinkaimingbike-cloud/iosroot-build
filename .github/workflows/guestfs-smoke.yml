@@ -1,0 +1,45 @@
+name: guestfs-smoke
+
+# 目的：验证 GitHub Ubuntu runner 上能否用 libguestfs（KVM 虚拟机）造 HFS+ 镜像。
+# 只要这条通了，HFS+ 根镜像就能在免费的 Linux runner 上做出来，不需要 macOS。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: KVM 是否可用
+        run: |
+          ls -l /dev/kvm || echo "NO KVM"
+          id
+
+      - name: 装 libguestfs
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libguestfs-tools
+          guestfish --version
+
+      - name: 造 200MB 镜像并试 mkfs hfsplusx
+        run: |
+          truncate -s 200M /tmp/t.img
+          set +e
+          guestfish --rw -a /tmp/t.img <<'GF' 2>&1 | tee /tmp/gf1.log
+          launch
+          avail hfsplusx
+          avail hfsplus
+          mkfs-opts /dev/sda fstype=hfsplusx journal=true
+          GF
+          echo "exit=$?"
+          echo "--- 再看能不能认出来 ---"
+          guestfish --ro -a /tmp/t.img <<'GF' 2>&1 | tail -5
+          launch
+          list-filesystems
+          GF
+
+      - name: 宿主机内核有没有 hfsplus（对照）
+        run: |
+          uname -r
+          ls /lib/modules/$(uname -r)/kernel/fs/ 2>/dev/null | head -20 || echo "no modules dir"
