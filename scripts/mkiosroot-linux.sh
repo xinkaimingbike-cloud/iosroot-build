@@ -45,7 +45,9 @@ if ! command -v apfs-fuse >/dev/null; then
   git clone --depth 1 https://github.com/sgan81/apfs-fuse.git "$T/a"
   # apfs-fuse 把 lzfse 当子模块放在 3rdparty/lzfse，不初始化子模块 CMake 直接报缺 lzfse.h
   git -C "$T/a" submodule update --init --recursive
-  cmake -S "$T/a" -B "$T/b" -DCMAKE_BUILD_TYPE=Release
+  # CMake 4.x 已移除对 cmake_minimum_required(<3.5) 的兼容，apfs-fuse 的 CMakeLists 很老，
+  # 必须显式把策略版本最低值降到 3.5，否则直接 CMake Error 退出。
+  cmake -S "$T/a" -B "$T/b" -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
   cmake --build "$T/b" -j"$(nproc)"
   install -m755 "$T/b/apfs-fuse" /usr/local/bin/apfs-fuse
   rm -rf "$T"
