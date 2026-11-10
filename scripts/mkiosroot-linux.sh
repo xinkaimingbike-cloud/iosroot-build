@@ -207,25 +207,23 @@ echo "== 5/5 校验 =="
 # （典型：HasFolderCount 标志未设、目录计数为 0）。fsck_hfs -y 修一轮不够，要修到干净。
 # fsck_hfs 退出码：0=无问题，1/2/8 等=发现问题或已修复，因此循环跑到 0 为止。
 frc=1
-for i in 1 2 3 4 5; do
+ok=0
+for i in 1 2 3 4 5 6; do
   set +e
-  fsck.hfsplus -f -y "$out" > "$W/fsck-$i.log" 2>&1
+  fsck.hfsplus -f -y "$out" > "$W/fsck-y-$i.log" 2>&1
   frc=$?
+  fsck.hfsplus -f -n "$out" > "$W/fsck-n-$i.log" 2>&1
+  nrc=$?
   set -e
-  echo "  fsck -y 第 $i 轮 rc=$frc"
-  grep -E '\*\* (Repairing|The volume .* was (repaired|found))|corrupt' "$W/fsck-$i.log" | tail -4 || true
-  if [ $frc -eq 0 ]; then break; fi
+  echo "  轮 $i：-y rc=$frc；只读校验 rc=$nrc"
+  tail -4 "$W/fsck-n-$i.log" | sed 's/^/    /'
+  if [ $nrc -eq 0 ] && grep -q 'appears to be OK' "$W/fsck-n-$i.log"; then ok=1; break; fi
 done
-set +e
-fsck.hfsplus -f -n "$out" > "$W/fsck-final.log" 2>&1
-vrc=$?
-set -e
-tail -6 "$W/fsck-final.log"
-if [ $vrc -ne 0 ]; then
-  echo "!! 只读校验仍不一致 rc=$vrc，镜像不可用" >&2
+if [ $ok -ne 1 ]; then
+  echo "!! 多轮修复后卷仍不一致，镜像不可用" >&2
   exit 1
 fi
-echo "  只读校验通过"
+echo "  只读校验通过（appears to be OK）"
 ls -l "$out"
 sha256sum "$out"
 echo "可用: split -b 2G -d $out ${out}.part && sha256sum ${out}.part* > ${out}.parts.sha256"
