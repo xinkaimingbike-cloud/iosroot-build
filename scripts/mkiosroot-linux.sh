@@ -185,6 +185,46 @@ for f in "$W/root/$DSC"/*; do
   ln "$f" "$W/root/System/Library/Caches/com.apple.dyld/${f##*/}" 2>/dev/null || true
 done
 
+echo "  cryptex 里根卷没有的文件补到根路径（dyld 在 ignition_level=1 不搜 cryptex）"
+# 上游 mkiosroot.sh 的关键一步：libobjc-trampolines / libffi-trampolines / libstdc++ 等
+# 只存在于 Cryptexes，根路径下没有副本，dyld 在 ignition_level=1 时又不会去 cryptex 找，
+# 于是所有 Objective-C 服务 dlopen 失败 -> SIGABRT -> 进度条推到一半就整体重启。
+nlinked=0
+bytes=0
+for c in OS App; do
+  d="$W/root/private/preboot/Cryptexes/$c"
+  [ -d "$d" ] || continue
+  while IFS= read -r f; do
+    f=${f#./}
+    case "$f" in System/Library/Caches/com.apple.dyld/*) continue;; esac
+    tgt="$W/root/$f"
+    if [ ! -e "$tgt" ] && [ ! -L "$tgt" ]; then
+      mkdir -p "$(dirname "$tgt")"
+      src="$d/$f"
+      # Linux hfsplus 对符号链接和硬链接支持不稳：先试硬链接（省空间），失败就实拷
+      if [ -L "$src" ]; then
+        cp -P "$src" "$tgt"
+      elif ln "$src" "$tgt" 2>/dev/null; then
+        :
+      else
+        cp -a "$src" "$tgt"
+      fi
+      nlinked=$((nlinked + 1))
+      echo "    $c:/$f"
+    fi
+  done < <(cd "$d" && find . ! -type d)
+done
+echo "  补入 $nlinked 个文件；卷剩余 $(df -h --output=avail "$W/root" | tail -1 | tr -d ' ')"
+
+echo "  关键校验：根路径必须有 libobjc-trampolines.dylib"
+for f in usr/lib/libobjc-trampolines.dylib usr/lib/libffi-trampolines.dylib; do
+  if [ -e "$W/root/$f" ]; then
+    echo "    OK  /$f ($(stat -c %s "$W/root/$f" 2>/dev/null || echo '?') B)"
+  else
+    echo "    !! 缺 /$f" >&2
+  fi
+done
+
 echo "  logd 目录（漏了 launchd 起不来）"
 DB="$W/root/private/var/db"
 install -d -o 272 -g 272 -m 0751 "$DB/diagnostics"
