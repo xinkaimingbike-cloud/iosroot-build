@@ -141,6 +141,16 @@ cp_() {  # cp_ <源> <目标>
     echo "  !! 跳过（源目录不存在）: $1"
     return 0
   fi
+  # 目标卷剩余空间先算一遍，不够就立刻报错并给出建议大小（避免 rsync 跑到一半 ENOSPC）
+  local need avail
+  need=$(du -sb "$1" | cut -f1)
+  avail=$(df -B1 --output=avail "$W/root" | tail -1 | tr -d ' ')
+  echo "  源约 $((need/1024/1024)) MiB，卷剩余 $((avail/1024/1024)) MiB"
+  if (( need > avail )); then
+    echo "  !! 卷不够大：$(basename "$1") 需要 $((need/1024/1024)) MiB，只剩 $((avail/1024/1024)) MiB" >&2
+    echo "  !! 请用更大的 size 重跑（建议 >= $(((need/1024/1024/1024)+3))G）" >&2
+    return 1
+  fi
   echo "  -> ${2#"$W/root"}"
   mkdir -p "$2"
   rsync -aH --numeric-ids "$1/" "$2/"
