@@ -203,8 +203,29 @@ sync
 umount "$W/root"
 
 echo "== 5/5 校验 =="
-fsck.hfsplus -f -y "$out" 2>&1 | grep -v 'Illegal name' || true
-fsck.hfsplus -f -n "$out" 2>&1 | tail -3
+# Linux 的 hfsplus 驱动 rw 支持是实验性的，大量写入后卷里留下不一致的 catalog 很正常
+# （典型：HasFolderCount 标志未设、目录计数为 0）。fsck_hfs -y 修一轮不够，要修到干净。
+# fsck_hfs 退出码：0=无问题，1/2/8 等=发现问题或已修复，因此循环跑到 0 为止。
+frc=1
+for i in 1 2 3 4 5; do
+  set +e
+  fsck.hfsplus -f -y "$out" > "$W/fsck-$i.log" 2>&1
+  frc=$?
+  set -e
+  echo "  fsck -y 第 $i 轮 rc=$frc"
+  grep -E '\*\* (Repairing|The volume .* was (repaired|found))|corrupt' "$W/fsck-$i.log" | tail -4 || true
+  if [ $frc -eq 0 ]; then break; fi
+done
+set +e
+fsck.hfsplus -f -n "$out" > "$W/fsck-final.log" 2>&1
+vrc=$?
+set -e
+tail -6 "$W/fsck-final.log"
+if [ $vrc -ne 0 ]; then
+  echo "!! 只读校验仍不一致 rc=$vrc，镜像不可用" >&2
+  exit 1
+fi
+echo "  只读校验通过"
 ls -l "$out"
 sha256sum "$out"
 echo "可用: split -b 2G -d $out ${out}.part && sha256sum ${out}.part* > ${out}.parts.sha256"
