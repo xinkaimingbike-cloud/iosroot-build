@@ -240,6 +240,9 @@ printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
  '<plist version="1.0"><dict><key>KeyBagKeys</key><data>U1dFRVQ=</data></dict></plist>' \
  | install -m 0600 -o 0 -g 0 /dev/stdin "$W/root/private/var/keybags/systembag.kb"
 
+echo "== 4.6/5 sweet-root-tweaks（进桌面的关键：跳 Setup / 删 CommCenter / 免 PanicOnCrash）=="
+python3 "$(dirname "$0")/sweet-root-tweaks.py" "$W/root"
+
 echo "  已拷贝内容占用:"
 du -sh "$W/root" | cut -f1
 sync
