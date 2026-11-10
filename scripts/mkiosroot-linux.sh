@@ -47,7 +47,12 @@ if ! command -v apfs-fuse >/dev/null; then
   git -C "$T/a" submodule update --init --recursive
   # CMake 4.x 已移除对 cmake_minimum_required(<3.5) 的兼容，apfs-fuse 的 CMakeLists 很老，
   # 必须显式把策略版本最低值降到 3.5，否则直接 CMake Error 退出。
-  cmake -S "$T/a" -B "$T/b" -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  # GCC 15 不再隐式提供 <cstdint>/<stdint.h>，apfs-fuse 的 PList.cpp 等文件因此报 uint8_t/uint32_t
+  # 未声明；用 -include 强制预包含，避免去改上游源码。
+  cmake -S "$T/a" -B "$T/b" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_CXX_FLAGS="-include cstdint" \
+    -DCMAKE_C_FLAGS="-include stdint.h"
   cmake --build "$T/b" -j"$(nproc)"
   install -m755 "$T/b/apfs-fuse" /usr/local/bin/apfs-fuse
   rm -rf "$T"
