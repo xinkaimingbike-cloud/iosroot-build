@@ -1,0 +1,39 @@
+name: host-hfsplus-smoke
+
+# 目的：验证当前 ubuntu runner 的内核是否自带 hfsplus 模块（若可以，就不用折腾虚拟机了）
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 内核与模块
+        run: |
+          uname -r
+          echo "--- 找 hfsplus 模块文件 ---"
+          ls -l /lib/modules/$(uname -r)/kernel/fs/ | grep -i hfs || echo "NO hfs dir"
+          find /lib/modules/$(uname -r) -iname '*hfsplus*' 2>/dev/null || true
+
+      - name: 装 hfsprogs 并尝试 modprobe
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq hfsprogs
+          which mkfs.hfsplus fsck.hfsplus
+          sudo modprobe hfsplus && echo "MODPROBE OK" || echo "MODPROBE FAILED"
+          cat /proc/filesystems | grep -i hfs || echo "not in /proc/filesystems"
+
+      - name: 造镜像并尝试挂载
+        run: |
+          set +e
+          truncate -s 300M /tmp/t.img
+          sudo mkfs.hfsplus -s -J -v iOSRoot /tmp/t.img
+          echo "mkfs exit=$?"
+          sudo mkdir -p /mnt/t
+          sudo mount -o loop -t hfsplus /tmp/t.img /mnt/t
+          echo "mount exit=$?"
+          mount | grep -i hfs
+          sudo touch /mnt/t/hello && sudo ls -l /mnt/t && echo "WRITE OK"
+          sudo umount /mnt/t
