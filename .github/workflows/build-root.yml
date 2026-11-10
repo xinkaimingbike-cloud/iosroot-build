@@ -23,9 +23,9 @@ on:
         required: false
         default: 'ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb'
       size:
-        description: '镜像大小（内容约 7G，9G 有富余）'
+        description: '镜像大小（iOS16 root 解压后远超 dmg 体积，16G 起）'
         required: false
-        default: '9G'
+        default: '16G'
       runner:
         description: 'runner：ubuntu-latest（可用）/ macos-14（Free 计划不可用）'
         required: false
