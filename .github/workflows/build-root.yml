@@ -86,10 +86,11 @@ jobs:
           split -b 1900m -a 2 iosroot.img iosroot.img.part
           if command -v sha256sum >/dev/null; then SH="sha256sum"; else SH="shasum -a 256"; fi
           $SH iosroot.img > iosroot.img.sha256
-          $SH iosroot.img.part* > iosroot.img.parts.sha256
+          # 只对分卷本体（partaa..partzz）做校验，别把 .parts.sha256 自己算进去
+          $SH iosroot.img.part?? > iosroot.img.parts.sha256
           ls -l
 
-      - name: 挂到 Release
+      - name: 建 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: root-${{ github.run_id }}
@@ -97,8 +98,19 @@ jobs:
           cd /tmp/work
           gh release create "$TAG" --repo "${{ github.repository }}" \
             --title "HFS+ root image $TAG" \
-            --notes "iOS 16.7.16 / 20H392 HFS+ root for ios-fuxi (fuxi). 分卷 1900M，合并: cat iosroot.img.part* > iosroot.img" \
-            iosroot.img.part* iosroot.img.sha256 iosroot.img.parts.sha256
+            --notes "iOS 16.7.16 / 20H392 HFS+ root for ios-fuxi (fuxi). 分卷 1900M，合并: cat iosroot.img.part?? > iosroot.img"
+
+      - name: 上传分卷
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: root-${{ github.run_id }}
+        run: |
+          cd /tmp/work
+          # 逐个上传并允许覆盖；避免 gh release create 里一次传多个资产时的名字冲突
+          gh release upload "$TAG" iosroot.img.part?? iosroot.img.sha256 iosroot.img.parts.sha256 \
+            --repo "${{ github.repository }}" --clobber
+          gh release view "$TAG" --repo "${{ github.repository }}" --json assets \
+            --jq '.assets[] | "\(.name) \(.size)"'
 
       - name: 汇总
         run: |
