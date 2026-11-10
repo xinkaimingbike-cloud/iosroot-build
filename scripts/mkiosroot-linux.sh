@@ -18,6 +18,17 @@ size=${3:-10G}
 [[ $(id -u) -eq 0 ]] || { echo "必须 root 运行" >&2; exit 1; }
 [[ -e /dev/fuse ]] || { echo "没有 /dev/fuse，apfs-fuse 无法工作" >&2; exit 1; }
 
+# 安全边界：本脚本只处理"新建的普通文件镜像"，绝不碰任何块设备/已有分区。
+# 目标必须是 /tmp 或 $RUNNER_TEMP 下的、事先不存在的普通文件。
+case "$out" in
+  /dev/*) echo "拒绝对设备节点操作: $out" >&2; exit 1;;
+esac
+if [[ -b $out ]]; then echo "目标 $out 是块设备，拒绝格式化" >&2; exit 1; fi
+case "$out" in
+  /tmp/*|"${RUNNER_TEMP:-/nonexistent}"/*) ;;
+  *) echo "目标 $out 不在临时目录内，为防误伤真实磁盘，拒绝执行" >&2; exit 1;;
+esac
+
 echo "== 0/5 环境 =="
 df -h /
 nproc; free -g | head -2
@@ -99,6 +110,9 @@ while IFS='=' read -r k v; do
   unzip -o "$ipsw" "$v" -d "$W/dmg" >/dev/null
 done < "$W/names.txt"
 ls -l "$W/dmg" || true
+# 解出 dmg 后立刻删 IPSW，把峰值压下来（runner 磁盘只有 ~30G 可用）
+sync
+rm -f "$ipsw"
 df -h /
 
 echo "== 4/5 造 HFS+ 卷并拷贝 =="
