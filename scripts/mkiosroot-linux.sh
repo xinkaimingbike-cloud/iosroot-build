@@ -35,8 +35,26 @@ nproc; free -g | head -2
 
 echo "== 1/5 依赖 =="
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq hfsprogs rsync python3 unzip cmake g++ git make \
+# GitHub runner 偶发解析不到 security.ubuntu.com / archive.ubuntu.com（2026-11-11 连挂两次），
+# 所以 apt 带重试，索引拉不到就整体切到 azure 镜像再来一遍。
+apt_retry() {
+  local i
+  for i in 1 2 3 4 5; do
+    if "$@"; then return 0; fi
+    echo "  apt 失败，重试 $i/5" >&2
+    sleep 5
+  done
+  return 1
+}
+if ! apt_retry apt-get update -qq; then
+  echo "  官方源不可达，切换到 azure.archive.ubuntu.com" >&2
+  for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [[ -f $f ]] || continue
+    sed -i -E 's#http(s)?://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g' "$f"
+  done
+  apt_retry apt-get update -qq || { echo "apt 索引拉取失败" >&2; exit 1; }
+fi
+apt_retry apt-get install -y -qq -o Acquire::Retries=5 hfsprogs rsync python3 unzip cmake g++ git make \
     libfuse3-dev libbz2-dev zlib1g-dev libssl-dev pkg-config >/dev/null
 modprobe hfsplus 2>/dev/null || true
 if ! command -v apfs-fuse >/dev/null; then
