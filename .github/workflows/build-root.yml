@@ -88,6 +88,20 @@ jobs:
           $SH iosroot.img > iosroot.img.sha256
           # 只对分卷本体（partaa..partzz）做校验，别把 .parts.sha256 自己算进去
           $SH iosroot.img.part?? > iosroot.img.parts.sha256
+          # 分块（64 MiB）哈希，用于本地只补差异块、而不是重下整卷
+          python3 - <<'PY'
+          import hashlib
+          bs = 64 << 20
+          with open('iosroot.img', 'rb') as f, open('iosroot.img.blocks.sha256', 'w') as out:
+              i = 0
+              while True:
+                  b = f.read(bs)
+                  if not b:
+                      break
+                  out.write('%s %d %d\n' % (hashlib.sha256(b).hexdigest(), i, len(b)))
+                  i += 1
+          print('blocks:', i)
+          PY
           ls -l
 
       - name: 建 Release
@@ -107,7 +121,7 @@ jobs:
         run: |
           cd /tmp/work
           # 逐个上传并允许覆盖；避免 gh release create 里一次传多个资产时的名字冲突
-          gh release upload "$TAG" iosroot.img.part?? iosroot.img.sha256 iosroot.img.parts.sha256 \
+          gh release upload "$TAG" iosroot.img.part?? iosroot.img.sha256 iosroot.img.parts.sha256 iosroot.img.blocks.sha256 \
             --repo "${{ github.repository }}" --clobber
           gh release view "$TAG" --repo "${{ github.repository }}" --json assets \
             --jq '.assets[] | "\(.name) \(.size)"'
