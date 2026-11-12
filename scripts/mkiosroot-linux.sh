@@ -266,7 +266,7 @@ echo "== 4.6/5 sweet-root-tweaks（进桌面的关键：跳 Setup / 删 CommCent
 # 里直接把这两个 job 标成 Disabled。
 python3 "$(dirname "$0")/sweet-root-tweaks.py" "$W/root" \
   --legacy-wallpaper --legacy-wallpaper-color '#2e3a6e' \
-  --disable-programs bluetoothd,fairplayd.H2
+  --disable-programs bluetoothd,fairplayd.H2,appleaccountd,symptomsd,Localizationswitcherd,chronod
 
 echo "  已拷贝内容占用:"
 du -sh "$W/root" | cut -f1
