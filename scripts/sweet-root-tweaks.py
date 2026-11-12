@@ -109,6 +109,31 @@ def launchd(root):
     print(f'launchd.plist: {renamed} _PanicOnCrash renamed, {len(removed)} CommCenter jobs removed')
 
 
+def disable_programs(root, names):
+    """把 program basename 命中的 job 标成 Disabled=true，launchd 就不再 respawn。
+
+    与上游 tools/disable-launchd-jobs.py 同一判据：按 Program/ProgramArguments[0]
+    的 basename 匹配，而不是按 Label（同一程序可能有多个 Label）。
+    """
+    path = os.path.join(root, 'System/Library/xpc/launchd.plist')
+    st = os.stat(path)
+    plist = load(path)
+    hit = {n: [] for n in names}
+    for job in plist['LaunchDaemons'].values():
+        args = job.get('ProgramArguments') or ['']
+        prog = job.get('Program') or (args[0] if args else '')
+        base = os.path.basename(prog or '')
+        if base in hit:
+            job['Disabled'] = True
+            hit[base].append(job.get('Label'))
+    missing = [n for n, labels in hit.items() if not labels]
+    if missing:
+        raise SystemExit('no job runs: ' + ', '.join(missing))
+    save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
+    for n, labels in hit.items():
+        print(f'launchd.plist: {n} disabled {", ".join(str(x) for x in labels)}')
+
+
 def containers(root):
     base = os.path.join(root, 'private/var/containers')
     for sub, uid in (('Bundle', 33), ('Data/System', 0), ('Shared/SystemGroup', 0), ('Temp', 0)):
@@ -444,6 +469,7 @@ def main():
     image.add_argument('--legacy-wallpaper-color', nargs='?', const=WALLPAPER_COLOR, metavar='#RRGGBB')
     image.add_argument('--no-legacy-wallpaper-color', action='store_true')
     ap.add_argument('--only-optional', action='store_true')
+    ap.add_argument('--disable-programs', metavar='NAME[,NAME...]')
     args = ap.parse_args()
     root = args.root
     if not os.path.isdir(os.path.join(root, 'System/Library/xpc')):
@@ -467,6 +493,8 @@ def main():
     if args.only_optional:
         return
     launchd(root)
+    if args.disable_programs:
+        disable_programs(root, [x.strip() for x in args.disable_programs.split(',') if x.strip()])
     containers(root)
     activation(root)
     audio(root)
