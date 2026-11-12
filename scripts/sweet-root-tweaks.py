@@ -128,7 +128,9 @@ def disable_programs(root, names):
             hit[base].append(job.get('Label'))
     missing = [n for n, labels in hit.items() if not labels]
     if missing:
-        raise SystemExit('no job runs: ' + ', '.join(missing))
+        print('WARN: no job runs for ' + ', '.join(missing))
+    if not any(hit.values()):
+        raise SystemExit('no job matched at all: ' + ', '.join(names))
     save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
     for n, labels in hit.items():
         print(f'launchd.plist: {n} disabled {", ".join(str(x) for x in labels)}')
