@@ -261,8 +261,12 @@ printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
 echo "== 4.6/5 sweet-root-tweaks（进桌面的关键：跳 Setup / 删 CommCenter / 免 PanicOnCrash）=="
 # 无 GPU（无 Metal）场景的额外优化：关 Autobahn poster 锁屏走 legacy 壁纸，
 # 并用纯色壁纸代替图片（图片要靠 SBRendererService 的 Metal 亮度处理，会画成白屏）。
+# bluetoothd / fairplayd.H2 在无蓝牙固件、无 SEP 的 fuxi 上必然崩，launchd 会一直
+# respawn（实测每 10 分钟各被杀 57 次），把 SpringBoard 挤在门外，因此在 launchd.plist
+# 里直接把这两个 job 标成 Disabled。
 python3 "$(dirname "$0")/sweet-root-tweaks.py" "$W/root" \
-  --legacy-wallpaper --legacy-wallpaper-color '#2e3a6e'
+  --legacy-wallpaper --legacy-wallpaper-color '#2e3a6e' \
+  --disable-programs bluetoothd,fairplayd.H2
 
 echo "  已拷贝内容占用:"
 du -sh "$W/root" | cut -f1
