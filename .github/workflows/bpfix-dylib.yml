@@ -1,0 +1,60 @@
+name: bpfix-dylib
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld
+          ls -d /usr/lib/llvm-*/bin
+      - name: write source
+        run: |
+          mkdir -p src
+          cat > src/fuxi-bpfix.m <<'EOF'
+          typedef void *id;
+          typedef void *Class;
+          typedef void *SEL;
+          typedef void *IMP;
+          typedef void *Method;
+          extern id objc_getClass(const char *name);
+          extern SEL sel_registerName(const char *name);
+          extern Method class_getInstanceMethod(Class cls, SEL sel);
+          extern IMP method_getImplementation(Method m);
+          extern IMP method_setImplementation(Method m, IMP imp);
+          extern void syslog(int pri, const char *fmt, ...);
+          static IMP orig = 0;
+          static int hits = 0;
+          static id hook_bpu(id self, SEL _cmd) {
+            (void)self; (void)_cmd;
+            if (hits++ < 3) syslog(4, "[bpfix] _boundingPathUtilities -> nil (hit %d)", hits);
+            return 0;
+          }
+          __attribute__((constructor))
+          static void bpfix_init(void) {
+            Class c = objc_getClass("UIScreen");
+            if (!c) { syslog(3, "[bpfix] UIScreen not found"); return; }
+            SEL s = sel_registerName("_boundingPathUtilities");
+            Method m = class_getInstanceMethod(c, s);
+            if (!m) { syslog(3, "[bpfix] sel not found"); return; }
+            orig = method_getImplementation(m);
+            method_setImplementation(m, (IMP)hook_bpu);
+            syslog(4, "[bpfix] installed on UIScreen");
+          }
+          EOF
+      - name: build
+        run: |
+          LLVMBIN=$(ls -d /usr/lib/llvm-*/bin | head -1)
+          echo "using $LLVMBIN"
+          clang -target arm64-apple-ios16.0 -dynamiclib -nostdinc -O2 \
+            -fuse-ld=$LLVMBIN/ld64.lld \
+            -Wl,-undefined,dynamic_lookup \
+            src/fuxi-bpfix.m -o fuxi-bpfix.dylib
+          ls -l fuxi-bpfix.dylib
+          file fuxi-bpfix.dylib || true
+          od -A d -c fuxi-bpfix.dylib | head -3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fuxi-bpfix
+          path: fuxi-bpfix.dylib
