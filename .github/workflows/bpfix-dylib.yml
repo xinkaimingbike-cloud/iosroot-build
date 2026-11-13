@@ -47,8 +47,9 @@ jobs:
         run: |
           LLVMBIN=$(ls -d /usr/lib/llvm-*/bin | head -1)
           echo "using $LLVMBIN"
-          clang -target arm64-apple-ios16.0 -dynamiclib -nostdinc -O2 \
+          clang -target arm64-apple-ios16.0 -dynamiclib -nostdinc -nostdlib -O2 \
             -fuse-ld=$LLVMBIN/ld64.lld \
+            -Wl,-platform_version -Wl,ios -Wl,16.0 -Wl,16.7 \
             -Wl,-undefined,dynamic_lookup \
             src/fuxi-bpfix.m -o fuxi-bpfix.dylib
           ls -l fuxi-bpfix.dylib
